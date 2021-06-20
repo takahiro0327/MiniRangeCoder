@@ -11,7 +11,7 @@ void UnitTest(const uint8_t* pOriginal, uint32_t originalSize, FREQ_LOWER table[
 	uint8_t compressData[HEADER_SIZE + 255 + margin];
   memset(compressData,0xAA,sizeof(compressData));
 
-	uint16_t compressed = RangeCoderEncode(pOriginal, originalSize, compressData, table);
+	uint16_t compressed = MiniRangeCoderEncode(pOriginal, originalSize, compressData, table);
 
 	ASSERT_LE(HEADER_SIZE, compressed);
   ASSERT_LE(compressed, originalSize + HEADER_SIZE);
@@ -23,10 +23,25 @@ void UnitTest(const uint8_t* pOriginal, uint32_t originalSize, FREQ_LOWER table[
   memset(decompressData,0x55,originalSize+margin);
 
 	uint8_t decompressSize;
-	bool res = RangeCoderDecode(compressData, decompressData, &decompressSize, table);
+	bool res = MiniRangeCoderDecode(compressData, decompressData, &decompressSize, table);
 
 	ASSERT_TRUE(res);
 	ASSERT_EQ(decompressSize, originalSize);
+  ASSERT_TRUE( std::all_of(&decompressData[originalSize], &decompressData[originalSize+margin], []( uint8_t x){return x == 0x55;}) );
+	ASSERT_EQ(memcmp(decompressData, pOriginal, originalSize), 0);
+
+  
+  memset(compressData,0xAA,sizeof(compressData));
+  uint32_t compressed32 = RangeCoderEncodeHeaderless(pOriginal,originalSize,compressData,table);
+
+	ASSERT_LE(0, compressed32);
+  ASSERT_LE(compressed32, originalSize);
+  ASSERT_TRUE( std::all_of(&compressData[compressed32], &compressData[compressed32+margin], [](uint8_t x){return x == 0xAA;}) );
+
+  memset(decompressData,0x55,originalSize+margin);
+  res = RangeCoderDecodeHeaderless(compressData, compressed32, decompressData, originalSize, table);
+
+  ASSERT_TRUE(res);
   ASSERT_TRUE( std::all_of(&decompressData[originalSize], &decompressData[originalSize+margin], []( uint8_t x){return x == 0x55;}) );
 	ASSERT_EQ(memcmp(decompressData, pOriginal, originalSize), 0);
 }
@@ -186,13 +201,13 @@ TEST( MiniRangeCoderTest, EdgeTest)
 	FREQ_LOWER table[256];
 	memset(table, 0, sizeof(table));
 
-	for (int byte1 = 0; byte1 < 0x100; byte1 += 5)
+	for (int byte1 = 0; byte1 < 0x100; byte1 += 16)
 	{
 		for (int otherFreq = 1; otherFreq <= 3; ++otherFreq)
 		{
 			table[byte1].freq = MAX_TOTAL_FREQ - otherFreq;
 
-			for (int byte2 = 0; byte2 < 0x100; byte2 += 5)
+			for (int byte2 = 0; byte2 < 0x100; byte2 += 16)
 			{
 				if (byte1 == byte2)
 					continue;
@@ -249,11 +264,11 @@ TEST( MiniRangeCoderTest, TwoByteTest)
 	std::mt19937 engine(seed());
 	std::uniform_int_distribution<> random(0, (int)MAX_TOTAL_FREQ);
 
-	for (int byte1 = 0; byte1 < 0x100; ++byte1)
+	for (int byte1 = 0; byte1 < 0x100; byte1 += 64)
 	{
-		for (int byte2 = 0; byte2 < 0x100; ++byte2)
+		for (int byte2 = 1; byte2 < 0x100; byte2 += 64)
 		{
-			for (int byte1Freq = 1; byte1Freq <= MAX_TOTAL_FREQ; byte1Freq += 3)
+			for (int byte1Freq = 1; byte1Freq <= MAX_TOTAL_FREQ; ++byte1Freq )
 			{
 				int byte2Freq = MAX_TOTAL_FREQ - byte1Freq;
 
