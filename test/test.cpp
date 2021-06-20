@@ -8,6 +8,7 @@
 void UnitTest(const uint8_t* pOriginal, uint32_t originalSize, FREQ_LOWER table[256])
 {
 	uint8_t compressData[HEADER_SIZE + 255 + 2];
+  memset(compressData,0xAA,sizeof(compressData));
 	compressData[sizeof(compressData) - 2] = 0xCC;
 	compressData[sizeof(compressData) - 1] = 0xAA;
 
@@ -19,6 +20,7 @@ void UnitTest(const uint8_t* pOriginal, uint32_t originalSize, FREQ_LOWER table[
 	ASSERT_EQ(compressData[sizeof(compressData) - 1], 0xAA);
 
 	uint8_t decompressData[255 + 2];
+  memset(decompressData,0x55,sizeof(decompressData));
 	decompressData[sizeof(decompressData) - 2] = 0x99;
 	decompressData[sizeof(decompressData) - 1] = 0xCC;
 
