@@ -3,44 +3,31 @@
 #include <string.h>
 
 #define RANGE_SHIFT		11
-#define NOT_COMPRESS	0xFF
 #define FIRST_RANGE		0xFFFFFFFF
 
 static_assert((1 << RANGE_SHIFT) == MAX_TOTAL_FREQ, "failed MAX_TOTAL_FREQ or RANGE_SHIFT");
 
-typedef struct
-{
-	uint8_t originalSize;
-	uint8_t compressedSize;
-} HEADER;
-
-uint16_t RangeCoderEncode(const uint8_t* pSrc, uint8_t srcSize, uint8_t* pCompressed, FREQ_LOWER table[0x100])
+uint32_t _RangeCoderEncode(const uint8_t* pSrc, uint32_t srcSize, uint8_t* pCompressed, FREQ_LOWER table[0x100])
 {
 	uint32_t range = FIRST_RANGE;
 	uint32_t lower = 0;
 
-	const uint8_t* pLast = pSrc + srcSize;
+    const uint8_t* pSrcFirst = pSrc;
+	const uint8_t* pSrcLast = pSrc + srcSize;
 
-	HEADER* pCompressedHeader = (HEADER*)pCompressed;
-	pCompressed += sizeof(HEADER);
-
-	pCompressedHeader->originalSize = srcSize;
-
+    uint8_t* pFirstCompressed = pCompressed;
 	uint8_t* pLimitCompressed = pCompressed + srcSize;
-
-	if (srcSize <= 1)
+    
+	if (srcSize <= 0)
 		goto not_compress;
+    
+    goto start;
 
-	goto start;
-
-	while( pSrc != pLast)
+	while( pSrc != pSrcLast )
 	{
-		if (range == 0)
-			goto not_compress;	//Detect bytes with a frequency of 0
-
 		while (range < 0x01000000)
 		{
-			*(pCompressed++) = (uint8_t)(lower >> 24);
+			*(pCompressed++) = (uint8_t)(lower >> (sizeof(lower)*8-8));
 			range <<= 8;
 			lower <<= 8;
 
@@ -48,14 +35,20 @@ uint16_t RangeCoderEncode(const uint8_t* pSrc, uint8_t srcSize, uint8_t* pCompre
 				goto not_compress;
 		}
 
-	start:;
+start:;
 
 		uint8_t byte = *(pSrc++);
 
-		uint32_t r = range >> RANGE_SHIFT;
-		uint32_t l = r * table[byte].lower;
+        uint16_t fre = table[byte].freq;
+        uint16_t low = table[byte].lower;
 
-		range  = r * table[byte].freq;
+		uint32_t r = range >> RANGE_SHIFT;
+		uint32_t l = r * low;
+
+		if (fre == 0)
+			goto not_compress;	//Detect bytes with a frequency of 0
+
+		range  = r * fre;
 
 		uint32_t n = lower + l;
 		bool carryup = n < lower;
@@ -70,47 +63,35 @@ uint16_t RangeCoderEncode(const uint8_t* pSrc, uint8_t srcSize, uint8_t* pCompre
 			--i;
 	}
 
-	if (range == 0)
-		goto not_compress;	//Detect bytes with a frequency of 0
-
-	for (int i = 0; i < 4 && lower; ++i)
+	while( lower )
 	{
-		*(pCompressed++) = (uint8_t)(lower >> 24);
+		*(pCompressed++) = (uint8_t)(lower >> (sizeof(lower)*8-8));
 		lower <<= 8;
 
 		if (pLimitCompressed == pCompressed)
 			goto not_compress;
 	}
 
-	uint32_t dstSize = (uintptr_t)pCompressed - (uintptr_t)pCompressedHeader;
-	pCompressedHeader->compressedSize = (uint8_t)(dstSize - sizeof(HEADER));
-
-	return dstSize;
+	return (uint32_t)((uintptr_t)pCompressed - (uintptr_t)pFirstCompressed);
 
 not_compress:
 
 	//Copy the original data since it could not be compressed.
-	pCompressedHeader->compressedSize = NOT_COMPRESS;
-	memcpy((void*)(pCompressedHeader + 1), (void*)(pLast - pCompressedHeader->originalSize), pCompressedHeader->originalSize);
-
-	return sizeof(HEADER) + pCompressedHeader->originalSize;
+	memcpy(pFirstCompressed, pSrcFirst, srcSize);
+	return srcSize;
 }
 
-bool RangeCoderDecode(const uint8_t* pCompressed, uint8_t* pOriginal, uint8_t* pOutOriginalSize, FREQ_LOWER table[0x100])
+bool _RangeCoderDecode(const uint8_t* pCompressed, uint32_t compressedSize, uint8_t* pOriginal, uint32_t originalSize, FREQ_LOWER table[0x100])
 {
 	uint32_t range = FIRST_RANGE;
 	uint32_t lower = 0;
 
-	HEADER* pHeader = (HEADER*)pCompressed;
-	pCompressed += sizeof(HEADER);
-	*pOutOriginalSize = pHeader->originalSize;
+	if (compressedSize > originalSize)
+        goto corrupted;		
 
-	if (pHeader->compressedSize != NOT_COMPRESS && pHeader->compressedSize >= pHeader->originalSize)
-		goto corrupted;
-
-	if (pHeader->compressedSize != NOT_COMPRESS)
+	if (compressedSize < originalSize)
 	{
-		const uint8_t* pCompressedLast = pCompressed + pHeader->compressedSize;
+		const uint8_t* pCompressedLast = pCompressed + compressedSize;
 
 		for (int i = 0; i < 4; ++i)
 		{
@@ -119,7 +100,7 @@ bool RangeCoderDecode(const uint8_t* pCompressed, uint8_t* pOriginal, uint8_t* p
 				lower += *(pCompressed++);
 		}
 
-		uint8_t* pOriginalLast = pOriginal + pHeader->originalSize;
+		uint8_t* pOriginalLast = pOriginal + originalSize;
 		
 		while (pOriginal != pOriginalLast)
 		{
@@ -158,12 +139,33 @@ bool RangeCoderDecode(const uint8_t* pCompressed, uint8_t* pOriginal, uint8_t* p
 	}
 
 	//Copy the original data since it could not be compressed.
-	memcpy(pOriginal, (void*)(pHeader + 1), pHeader->originalSize);
+	memcpy(pOriginal, pCompressed, originalSize);
 	return true;
 
 corrupted:
 
 	return false;
+}
+
+typedef struct
+{
+	uint8_t originalSize;
+	uint8_t compressedSize;
+} HEADER;
+
+uint16_t MiniRangeCoderEncode(const uint8_t* pSrc, uint8_t srcSize, uint8_t* pCompressed, FREQ_LOWER table[0x100])
+{
+    HEADER* header = (HEADER*)pCompressed;
+    header->originalSize = srcSize;
+    header->compressedSize = _RangeCoderEncode(pSrc,srcSize,pCompressed + sizeof(HEADER),table);
+    return sizeof(HEADER) + header->compressedSize;
+}
+
+bool MiniRangeCoderDecode(const uint8_t* pCompressed, uint8_t* pOutOriginal, uint8_t* pOutOriginalSize, FREQ_LOWER table[0x100])
+{
+    HEADER* header = (HEADER*)pCompressed;
+    *pOutOriginalSize = header->originalSize;
+    return _RangeCoderDecode(pCompressed + sizeof(HEADER), header->compressedSize, pOutOriginal, header->originalSize, table);
 }
 
 uint8_t GetOriginalSize( const uint8_t* pCompressed )
@@ -175,7 +177,15 @@ uint8_t GetOriginalSize( const uint8_t* pCompressed )
 uint16_t GetDataSize( const uint8_t* pCompressed )
 {
     HEADER* pHeader = (HEADER*)pCompressed;
-    if( pHeader->compressedSize == NOT_COMPRESS )
-        return sizeof(HEADER) + pHeader->originalSize;
     return sizeof(HEADER) + pHeader->compressedSize;
+}
+
+uint32_t RangeCoderEncodeHeaderless( const uint8_t* pSrc, uint32_t srcSize, uint8_t* pCompressed, FREQ_LOWER table[0x100] )
+{
+    return _RangeCoderEncode(pSrc,srcSize,pCompressed,table);
+}
+
+bool RangeCoderDecodeHeaderless(const uint8_t* pCompressed, uint32_t compressedSize, uint8_t* pOutOriginal, uint32_t originalSize, FREQ_LOWER table[0x100])
+{
+    return _RangeCoderDecode(pCompressed, compressedSize, pOutOriginal, originalSize, table);
 }
