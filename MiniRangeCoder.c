@@ -175,5 +175,7 @@ uint8_t GetOriginalSize( const uint8_t* pCompressed )
 uint16_t GetDataSize( const uint8_t* pCompressed )
 {
     HEADER* pHeader = (HEADER*)pCompressed;
+    if( pHeader->compressedSize == NOT_COMPRESS )
+        return sizeof(HEADER) + pHeader->originalSize;
     return sizeof(HEADER) + pHeader->compressedSize;
 }

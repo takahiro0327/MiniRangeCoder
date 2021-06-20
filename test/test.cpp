@@ -18,6 +18,8 @@ void UnitTest(const uint8_t* pOriginal, uint32_t originalSize, FREQ_LOWER table[
   ASSERT_LE(compressed, originalSize + HEADER_SIZE);
 	ASSERT_EQ(compressData[sizeof(compressData) - 2], 0xCC);
 	ASSERT_EQ(compressData[sizeof(compressData) - 1], 0xAA);
+  ASSERT_EQ(GetOriginalSize(compressData), originalSize);
+  ASSERT_EQ(GetDataSize(compressData), compressed);
 
 	uint8_t decompressData[255 + 2];
   memset(decompressData,0x55,sizeof(decompressData));
