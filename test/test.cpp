@@ -9,31 +9,24 @@ void UnitTest(const uint8_t* pOriginal, uint32_t originalSize, FREQ_LOWER table[
 {
 	uint8_t compressData[HEADER_SIZE + 255 + 2];
   memset(compressData,0xAA,sizeof(compressData));
-	compressData[sizeof(compressData) - 2] = 0xCC;
-	compressData[sizeof(compressData) - 1] = 0xAA;
 
 	uint16_t compressed = RangeCoderEncode(pOriginal, originalSize, compressData, table);
 
 	ASSERT_LE(HEADER_SIZE, compressed);
   ASSERT_LE(compressed, originalSize + HEADER_SIZE);
-	ASSERT_EQ(compressData[sizeof(compressData) - 2], 0xCC);
-	ASSERT_EQ(compressData[sizeof(compressData) - 1], 0xAA);
   ASSERT_EQ(GetOriginalSize(compressData), originalSize);
   ASSERT_EQ(GetDataSize(compressData), compressed);
+  ASSERT_TRUE( std::all_of(&compressData[compressed], &compressData[sizeof(compressData)], [](uint8_t x){return x == 0xAA;}) );
 
 	uint8_t decompressData[255 + 2];
   memset(decompressData,0x55,sizeof(decompressData));
-	decompressData[sizeof(decompressData) - 2] = 0x99;
-	decompressData[sizeof(decompressData) - 1] = 0xCC;
 
 	uint8_t decompressSize;
 	bool res = RangeCoderDecode(compressData, decompressData, &decompressSize, table);
 
 	ASSERT_TRUE(res);
 	ASSERT_EQ(decompressSize, originalSize);
-	ASSERT_EQ(decompressData[sizeof(decompressData) - 2], 0x99);
-	ASSERT_EQ(decompressData[sizeof(decompressData) - 1], 0xCC);
-
+  ASSERT_TRUE( std::all_of(&decompressData[originalSize], &decompressData[sizeof(decompressData)], []( uint8_t x){return x == 0x55;}) );
 	ASSERT_EQ(memcmp(decompressData, pOriginal, originalSize), 0);
 }
 
